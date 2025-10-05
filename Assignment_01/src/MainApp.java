@@ -9,8 +9,12 @@
  * @author nagatd
  */
 import javafx.application.Application;
+import javafx.scene.Scene;
+import javafx.scene.layout.Pane;
+import javafx.stage.Stage;
 
-public class MainApp {
+
+public class MainApp extends Application{
          //MainApp.java launches the app and sets up the main scene.
 
     /**
