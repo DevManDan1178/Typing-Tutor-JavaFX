@@ -14,6 +14,7 @@ import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.Pane;
 import javafx.scene.text.Font;
+import javafx.scene.text.TextFlow;
 
 /**
  *
@@ -44,10 +45,11 @@ public class TypingController {
     
     private static final HashMap<String, Function<String, String>> SYMBOL_FUNCTIONS = new HashMap() {
         {
-            put("←", (Function<String, String>) (String str) -> str.substring(0, str.length() - 1));
+            put("←", (Function<String, String>) (String str) -> str.substring(0, Math.max(0, str.length() - 1)));
             put("SPACE", (Function<String, String>) (String str) -> str + " ");
-            put("ENTER", (Function<String, String>) (String str) -> str + "\n");
+            put("ENTER", Function.identity());
             put("⇧ Shift", Function.identity());
+            
         }
     };
     
@@ -72,18 +74,39 @@ public class TypingController {
     private static final double DEFAULT_KEY_SIZE = 50.0;
     private static final double VERTICAL_SPACING = 5;
     private static final double HORIZONTAL_SPACING = 5;
+    private static final double TEXT_TYPING_FONT_SIZE = 30;
+
+    
     
     //NON-STATIC VALUES
-    private boolean shiftPressed = false;
+    
+    //UI
+    private GridPane grid;
     private HashMap<String, Button> keyboardMap;
     private GridPane keyboardGrid;
+    private TextFlow typingTextFlow;
+    
+    private boolean shiftPressed = false;
+    private String typedString = "";
+    private String goalString = "T";
+
     
     public TypingController() {
+        grid = new GridPane();
+        
         keyboardGrid = new GridPane();
         keyboardMap = createKeyboard(keyboardGrid);
+        
+
+        typingTextFlow = new TextFlow();
+        
+        grid.add(typingTextFlow, 0, 1);
+        grid.add(keyboardGrid, 0, 2);
+        grid.setAlignment(Pos.CENTER);
     }
     
-    //STATIC FUNCTIONS - KEYBOARD
+    //For typing -> display the  text and if typed incorrectly, replace letters with red
+    
     /**
      * Displays the virtual keyboard and returns a map of the keys
      * @param keyboardGrid Parent GridPane containing the keyboard
@@ -110,26 +133,16 @@ public class TypingController {
         return keyboardMap;
     }
     
-    /**
-     * Gets the string of the key code that corresponds to the keyboard key
-     * @param keyCode
-     * @return String for the key in the keyboard
-     */
-    public static String getKeySymbol(KeyCode keyCode) {
-        String keyStr = keyCode.toString();
-        return KEYCODE_TO_SYMBOL.getOrDefault(keyStr, keyStr);
-    }
-    
+
     /**
      * Gets the event handler for keyboard pressing / letting go
-     * @param keyboardMap map of keyboard symbols to their buttons
      * @param pressed is the event for key pressed or key released?
-     * @param processFunction function to call by event handler after the key is confirmed to be a keyboard key (key symbol -> void)
      * @Param shiftPressedCheck predicate to check when shift is pressed
      * @return the corresponding event handler
      */
-    public EventHandler<KeyEvent> getKeyEventHandler(boolean pressed, Consumer<String> processFunction) {
+    public EventHandler<KeyEvent> getKeyEventHandler(boolean pressed) {
         String style = pressed ? "-fx-background-color: #ff0000;" : "";
+
         return (KeyEvent event) -> {
             String keySymbol = TypingController.getKeySymbol(event.getCode()); 
             Button keyboardButton = keyboardMap.get(keySymbol);
@@ -143,27 +156,96 @@ public class TypingController {
                 return;
             }
             
-            if (processFunction != null) {
-                if(keySymbol.length() == 1 && Character.isLetter(keySymbol.toCharArray()[0])) {
-                    char symbol = keySymbol.toCharArray()[0];
-                    processFunction.accept((shiftPressed ? Character.toUpperCase(symbol) : Character.toLowerCase(symbol)) + "");
-                    return;
-                }
-                processFunction.accept(keySymbol);
+            if (pressed) {
+                setTypedString(TypingController.applySymbolToString(typedString, getTypedSymbol(keySymbol)));
             }
         };
     }
     
-    //STATIC FUNCTIONS - TEXT DISPLAY
+    /**
+     * In the text flow, creates labels of texts of regular (correct) or red (incorrect) strings with respect to the typed text and the goal text
+     */
+    private void displayTypedText() {
+        System.out.println(typedString + "\n" + goalString);
+        typingTextFlow.getChildren().clear();
+        int compareStrLength = Math.min(typedString.length(), goalString.length());
+        //Break text into a list of indexes to seperate
+        int lastIndex = 0;
+        boolean lastCorrect = true;
+        Label lastLabel = null;
+        for (int i = 0; i < compareStrLength; i++) {
+            boolean isCorrect = goalString.charAt(i) == typedString.charAt(i);
+            
+            //If the current letter is the same (correct/incorrect) as previous(es), then continue until finding another index
+            if (lastCorrect == isCorrect && i > 0 && i != compareStrLength - 1) { 
+                continue;
+            }
+            if (lastLabel != null) {
+                //Create a text from last index to this index, and set it as correct or incorrect
+                String txtStr = goalString.substring(lastIndex, i);
+                lastLabel.setText(txtStr);
+                System.out.println(String.valueOf(i) + String.valueOf(isCorrect) + " " + txtStr);
+            }
+            lastLabel = new Label(goalString.charAt(i) + "");
+            lastLabel.setFont(Font.font(TEXT_TYPING_FONT_SIZE));
+            lastLabel.setStyle(isCorrect ? "-fx-background-color: #00FF00;" : "-fx-background-color: #ff0000;"); 
+            typingTextFlow.getChildren().add(lastLabel);            
+
+
+            //Update searching values
+            lastIndex = i;
+            lastCorrect = isCorrect;
+        }
+        
+        if (typedString.length() == goalString.length()) {
+            return;
+        }
+        String restOfText = (typedString.length() > goalString.length() ? typedString : goalString).substring(compareStrLength);
+        System.out.println(restOfText);
+        Label lbl = new Label(restOfText);
+        lbl.setFont(Font.font(TEXT_TYPING_FONT_SIZE));
+        lbl.setStyle(typedString.length() > goalString.length() ? "-fx-background-color: #ffb24d;" : "");
+        typingTextFlow.getChildren().add(lbl);   
+ 
+    }
     
-    public static Label getTextDisplay() {
-        Label txtLabel = new Label();
-        txtLabel.setMinSize(DEFAULT_KEY_SIZE * 8, DEFAULT_KEY_SIZE);
-        txtLabel.setFont(Font.font("Arial", 20));
-        return txtLabel;
+    public void resetStringToType(String str) {
+        setTypedString("");
+        goalString = str;
+        displayTypedText();
     }
     
     /**
+     * Sets the typed string and calls other methods to update UI
+     * @param str 
+     */
+    private void setTypedString(String str) {
+        typedString = str;
+        displayTypedText();
+        //Update error count
+       
+    }
+
+    /**
+     * Counts the amount of errors
+     * @return the amount of characters in the typed text that is different from that of the goal
+     */
+    private int countErrors() {
+        int errorCount = 0;
+        for (int i = 0; i < typedString.length(); i++) {
+            if (goalString.length() < i || goalString.charAt(i) != typedString.charAt(i)) {
+                errorCount += 1;
+            }
+        }
+        return errorCount;
+    }
+    
+    public GridPane getGrid() {
+        return grid;
+    }
+    
+    
+     /**
      * Applies the symbol to the string
      * @param startStr initial string
      * @param symbol symbol to apply
@@ -173,8 +255,28 @@ public class TypingController {
         return SYMBOL_FUNCTIONS.getOrDefault(symbol, (Function<String, String>) (String str) -> (str + symbol)).apply(startStr);
     }
     
-    public GridPane getKeyboardGrid() {
-        return keyboardGrid;
+    
+    /**
+     * Gets the typed symbol depending on if shift is pressed
+     * @param keySymbol the symbol of the key
+     * @return the final symbol, after checking for shift presses
+     */
+    private String getTypedSymbol(String keySymbol) {
+        if (!(keySymbol.length() == 1 && Character.isLetter(keySymbol.toCharArray()[0]))) {
+            return keySymbol;
+        }
+        char symbol = keySymbol.toCharArray()[0];
+        return (shiftPressed ? Character.toUpperCase(symbol) : Character.toLowerCase(symbol)) + "";
+    }
+    
+    /**
+     * Gets the string of the key code that corresponds to the keyboard key
+     * @param keyCode
+     * @return String for the key in the keyboard
+     */
+    public static String getKeySymbol(KeyCode keyCode) {
+        String keyStr = keyCode.toString();
+        return KEYCODE_TO_SYMBOL.getOrDefault(keyStr, keyStr);
     }
     
 }
