@@ -16,6 +16,7 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.Font;
+import javafx.scene.text.TextAlignment;
 import javafx.scene.text.TextFlow;
 
 /**
@@ -86,21 +87,26 @@ public class TypingController {
     private HashMap<String, Button> keyboardMap;
     private GridPane keyboardGrid;
     private TextFlow typingTextFlow;
+    private Label accuracyLabel;
+    private Label lineCountLabel;
     
+    //Variables
     private boolean shiftPressed = false;
     private String typedString = "";
-    private String goalString = "T";
-
+    private String[] allStrings;
+    private int lineIndex, savedErrorCount, savedTotalCharactersCount;
     
-    public TypingController() {
+    public TypingController(String[] practiceStrings) {
+        allStrings = practiceStrings;
         root = new VBox();
         root.setAlignment(Pos.CENTER);
         root.setSpacing(25);
         keyboardGrid = new GridPane();
+        keyboardGrid.setAlignment(Pos.CENTER);
         keyboardMap = createKeyboard(keyboardGrid);
         
         HBox hBox = new HBox();
-        hBox.setSpacing(25);
+        hBox.setSpacing(150);
         hBox.setAlignment(Pos.CENTER);
         //Controls
         VBox controlsVBox = new VBox();
@@ -113,10 +119,16 @@ public class TypingController {
         Button resetButton = createButton("RESET");
         controlsVBox.getChildren().add(resetButton);
         resetButton.setFocusTraversable(false);
+        resetButton.setOnAction((event) -> {
+            resetTypingPractice();
+        });
         
         Button nextButton = createButton("NEXT LINE");
         controlsVBox.getChildren().add(nextButton);
         nextButton.setFocusTraversable(false);
+        nextButton.setOnAction((event) -> {
+            incrementLineToType();
+        });
         
         //Stats
         VBox statsVBox = new VBox();
@@ -126,16 +138,17 @@ public class TypingController {
         statsTitle.setFont(Font.font(30));
         statsVBox.getChildren().add(statsTitle);
         
-        Label accuracyLabel = new Label("Accuracy : ?/?");
+        accuracyLabel = new Label("Accuracy : ?/?");
         accuracyLabel.setFont(Font.font(25));
         statsVBox.getChildren().add(accuracyLabel);
         
-        Label lineCountLabel = new Label("Line ?/?");
+        lineCountLabel = new Label("Line ?/?");
         lineCountLabel.setFont(Font.font(25));
         statsVBox.getChildren().add(lineCountLabel);
         
         //Text typing
         typingTextFlow = new TextFlow();
+        typingTextFlow.setTextAlignment(TextAlignment.CENTER);
         //Structure
         hBox.getChildren().add(controlsVBox);  
         hBox.getChildren().add(statsVBox);
@@ -143,14 +156,22 @@ public class TypingController {
         root.getChildren().add(typingTextFlow);
         root.getChildren().add(keyboardGrid);
         root.setAlignment(Pos.CENTER);
+        
+        //Initialize
+        setLineToType(0);
     }
     
+    /**
+     * Creates a button (used for creating controls buttons)
+     * @param buttonTitle 
+     * @return the created button
+     */
     private Button createButton(String buttonTitle) {
         Button btn = new Button(buttonTitle);
         btn.setMinSize(DEFAULT_KEY_SIZE * 3, DEFAULT_KEY_SIZE);
         return btn;
     }
-    //For typing -> display the  text and if typed incorrectly, replace letters with red
+    
     
     /**
      * Displays the virtual keyboard and returns a map of the keys
@@ -200,6 +221,10 @@ public class TypingController {
                 shiftPressed = pressed;
                 return;
             }
+            if (keySymbol.equals("ENTER")) {
+                checkLineComplete();
+                return;
+            }
             
             if (pressed) {
                 setTypedString(TypingController.applySymbolToString(typedString, getTypedSymbol(keySymbol)));
@@ -212,6 +237,7 @@ public class TypingController {
      */
     private void displayTypedText() {
         typingTextFlow.getChildren().clear();
+        String goalString = allStrings[lineIndex];
         int compareStrLength = Math.min(typedString.length(), goalString.length());
         //Break text into a list of indexes to seperate
         int lastIndex = 0;
@@ -224,10 +250,9 @@ public class TypingController {
                 continue;
             }
             if (lastLabel != null) {
-                //Create a text from last index to this index, and set it as correct or incorrect
+                //Create a text from last index to this index, and set its color as correct or incorrect
                 String txtStr = goalString.substring(lastIndex, i);
                 lastLabel.setText(txtStr);
-                System.out.println(String.valueOf(i) + String.valueOf(isCorrect) + " " + txtStr);
             }
             lastLabel = new Label(goalString.charAt(i) + "");
             lastLabel.setFont(Font.font(TEXT_TYPING_FONT_SIZE));
@@ -248,32 +273,70 @@ public class TypingController {
         lbl.setFont(Font.font(TEXT_TYPING_FONT_SIZE));
         lbl.setStyle(typedString.length() > goalString.length() ? "-fx-background-color: #ffb24d;" : "");
         typingTextFlow.getChildren().add(lbl);   
- 
     }
     
-    public void resetStringToType(String str) {
+    /**
+     * Checks if the typed string matches the string to type
+     */
+    private void checkLineComplete() {
+        if (typedString.equals(allStrings[lineIndex])) {
+            incrementLineToType();
+        }
+    }
+    
+    /**
+     * Increases the index of the line to type by 1 and calls the corresponding functions
+     */
+    private void incrementLineToType() {
+        savedErrorCount += getErrorCount();
+        savedTotalCharactersCount += typedString.length();
+        setLineToType((lineIndex + 1) % allStrings.length);
+    }
+    
+    /**
+     * Sets the index of the line to type (does nothing and returns false if index is invalid)
+     * @param index
+     * @return true if success, false if not
+     */
+    private boolean setLineToType(int index) {
+        int totalLineCount = allStrings.length;
+        if (index < 0 || index >= totalLineCount) {
+            return false;
+        }
+        lineIndex = index;
         setTypedString("");
-        goalString = str;
-        displayTypedText();
+        lineCountLabel.setText(String.format("Line %s of %s", lineIndex + 1, totalLineCount));
+        return true;
+    }
+    
+    /**
+     * Resets the typed text, the counts of saved errors and total characters
+     */
+    private void resetTypingPractice() {  
+        savedErrorCount = 0;
+        savedTotalCharactersCount = 0;
+        setTypedString("");
     }
     
     /**
      * Sets the typed string and calls other methods to update UI
-     * @param str 
+     * @param str string to set as (set to "" to reset)
      */
     private void setTypedString(String str) {
         typedString = str;
         displayTypedText();
-        //Update error count
-       
+        int characterCount = str.length();
+        accuracyLabel.setText(String.format("Accuracy : %s/%s", (savedTotalCharactersCount - savedErrorCount) + (characterCount - getErrorCount()), savedTotalCharactersCount + characterCount));
+        
     }
 
     /**
      * Counts the amount of errors
      * @return the amount of characters in the typed text that is different from that of the goal
      */
-    private int countErrors() {
+    private int getErrorCount() {
         int errorCount = 0;
+        String goalString = allStrings[lineIndex];
         for (int i = 0; i < typedString.length(); i++) {
             if (goalString.length() < i || goalString.charAt(i) != typedString.charAt(i)) {
                 errorCount += 1;
@@ -281,12 +344,8 @@ public class TypingController {
         }
         return errorCount;
     }
-    
-    public VBox getRoot() {
-        return root;
-    }
-    
-    
+
+     
      /**
      * Applies the symbol to the string
      * @param startStr initial string
@@ -321,5 +380,8 @@ public class TypingController {
         return KEYCODE_TO_SYMBOL.getOrDefault(keyStr, keyStr);
     }
     
+    public VBox getRoot() {
+        return root;
+    }
 }
 
