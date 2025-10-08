@@ -1,19 +1,17 @@
 
 import java.util.HashMap;
-import java.util.Map;
-import java.util.function.Consumer;
 import java.util.function.Function;
-import java.util.function.Predicate;
 import javafx.event.EventHandler;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.control.Alert;
+import javafx.scene.control.Alert.AlertType;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
-import javafx.scene.layout.Pane;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.Font;
 import javafx.scene.text.TextAlignment;
@@ -40,26 +38,17 @@ public class TypingController {
             put("BACK_QUOTE", "`");
             put("MINUS", "-");
             put("EQUALS", "=");
+            put("CAPS_LOCK", "CAPS");
             for (int i = 0; i < 10; i++) {
                 put("DIGIT" + String.valueOf(i), String.valueOf(i));
             }
         }
     };
     
-    private static final HashMap<String, Function<String, String>> SYMBOL_FUNCTIONS = new HashMap() {
-        {
-            put("←", (Function<String, String>) (String str) -> str.substring(0, Math.max(0, str.length() - 1)));
-            put("SPACE", (Function<String, String>) (String str) -> str + " ");
-            put("ENTER", Function.identity());
-            put("⇧ Shift", Function.identity());
-            
-        }
-    };
-    
     private static final String[][] KEYBOARD_CHARACTERS = {
         {"`","1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", "←"},
-        {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "[", "]", "\\"}, 
-        {"A", "S", "D", "F", "G", "H", "J", "K", "L", ";", "\'", "ENTER"},
+        {"TAB", "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "[", "]", "\\"}, 
+        {"CAPS","A", "S", "D", "F", "G", "H", "J", "K", "L", ";", "\'", "ENTER"},
         {"⇧ Shift", "Z", "X", "C", "V", "B", "N", "M", ",", ".", "/"},
         {"SPACE"}
     };
@@ -70,6 +59,8 @@ public class TypingController {
             put("ENTER", 100.0);
             put("SPACE", 300.0);
             put("←", 100.0);
+            put("CAPS", 87.5);
+            put("TAB", 75.0);
         }
     };
     
@@ -78,7 +69,7 @@ public class TypingController {
     private static final double VERTICAL_SPACING = 5;
     private static final double HORIZONTAL_SPACING = 5;
     private static final double TEXT_TYPING_FONT_SIZE = 30;
-    
+    private static double STATS_FONT_SIZE = 25;
     
     //NON-STATIC VALUES
     
@@ -88,26 +79,38 @@ public class TypingController {
     private GridPane keyboardGrid;
     private TextFlow typingTextFlow;
     private Label accuracyLabel;
+    private Label errorCountLabel;
     private Label lineCountLabel;
     
     //Variables
     private boolean shiftPressed = false;
+    private boolean capsToggled = false;
     private String typedString = "";
     private String[] allStrings;
-    private int lineIndex, savedErrorCount, savedTotalCharactersCount;
+    private int lineIndex, totalErrors, totalTypedCharacters;
+    
+    //Map of functions called by special symbols when PRESSED on the keyboard
+    private final HashMap<String, Runnable> SYMBOL_FUNCTIONS = new HashMap() {
+        {
+            put("←", (Runnable) () -> {setTypedString(typedString.substring(0, Math.max(0, typedString.length() - 1)));});
+            put("SPACE", (Runnable) () -> {addTypedSymbolToTypedString(" ");});
+            put("ENTER", (Runnable) () -> {checkLineComplete();});
+            put("TAB", (Runnable) () -> {addTypedSymbolToTypedString("  ");});
+            put("⇧ Shift", (Runnable) () -> {}); //handled in input processing
+            put("CAPS", (Runnable) () -> {capsToggled = !capsToggled;});
+        }
+    };
     
     public TypingController(String[] practiceStrings) {
         allStrings = practiceStrings;
         root = new VBox();
-        root.setAlignment(Pos.CENTER);
-        root.setSpacing(25);
+
         keyboardGrid = new GridPane();
         keyboardGrid.setAlignment(Pos.CENTER);
         keyboardMap = createKeyboard(keyboardGrid);
         
         HBox hBox = new HBox();
-        hBox.setSpacing(150);
-        hBox.setAlignment(Pos.CENTER);
+       
         //Controls
         VBox controlsVBox = new VBox();
         controlsVBox.setSpacing(10);
@@ -132,31 +135,35 @@ public class TypingController {
         
         //Stats
         VBox statsVBox = new VBox();
-        statsVBox.setSpacing(20);
+        
         
         Label statsTitle = new Label("STATS");
-        statsTitle.setFont(Font.font(30));
-        statsVBox.getChildren().add(statsTitle);
+        statsTitle.setFont(Font.font(STATS_FONT_SIZE * 1.2));
         
         accuracyLabel = new Label("Accuracy : ?/?");
-        accuracyLabel.setFont(Font.font(25));
-        statsVBox.getChildren().add(accuracyLabel);
+        accuracyLabel.setFont(Font.font(STATS_FONT_SIZE));
         
+        errorCountLabel = new Label("Errors : 0");
+        errorCountLabel.setFont(Font.font(STATS_FONT_SIZE));
+           
         lineCountLabel = new Label("Line ?/?");
-        lineCountLabel.setFont(Font.font(25));
-        statsVBox.getChildren().add(lineCountLabel);
+        lineCountLabel.setFont(Font.font(STATS_FONT_SIZE));
+        statsVBox.getChildren().addAll(statsTitle, accuracyLabel, errorCountLabel, lineCountLabel);
         
         //Text typing
         typingTextFlow = new TextFlow();
         typingTextFlow.setTextAlignment(TextAlignment.CENTER);
         //Structure
-        hBox.getChildren().add(controlsVBox);  
-        hBox.getChildren().add(statsVBox);
-        root.getChildren().add(hBox);
-        root.getChildren().add(typingTextFlow);
-        root.getChildren().add(keyboardGrid);
-        root.setAlignment(Pos.CENTER);
+        statsVBox.setSpacing(5);
         
+        hBox.getChildren().addAll(controlsVBox, statsVBox);  
+        hBox.setSpacing(150);
+        hBox.setAlignment(Pos.CENTER);
+        
+        root.getChildren().addAll(hBox, typingTextFlow, keyboardGrid);    
+        root.setAlignment(Pos.CENTER);
+        root.setAlignment(Pos.CENTER);
+        root.setSpacing(25);
         //Initialize
         setLineToType(0);
     }
@@ -213,6 +220,7 @@ public class TypingController {
             String keySymbol = TypingController.getKeySymbol(event.getCode()); 
             Button keyboardButton = keyboardMap.get(keySymbol);
             if (keyboardButton == null) {
+                showInvalidKeyAlert(keySymbol);
                 return;
             }
             keyboardButton.setStyle(style);
@@ -221,15 +229,34 @@ public class TypingController {
                 shiftPressed = pressed;
                 return;
             }
-            if (keySymbol.equals("ENTER")) {
-                checkLineComplete();
-                return;
-            }
             
             if (pressed) {
-                setTypedString(TypingController.applySymbolToString(typedString, getTypedSymbol(keySymbol)));
+                applySymbolFunction(getTypedSymbol(keySymbol));
+                //setTypedString(TypingController.applySymbolToString(typedString, getTypedSymbol(keySymbol)));
             }
         };
+    }
+    
+    /**
+     * Applies the symbol to the typed string variable
+     * @param symbol symbol to apply to the typed string
+     */
+    public void applySymbolFunction(String symbol) {
+        SYMBOL_FUNCTIONS.getOrDefault(symbol, (Runnable) () -> {addTypedSymbolToTypedString(symbol);}).run();
+    }
+    
+    /**
+     * Adds the symbol to the typed strings and updates the total typed characters count and the total error count for the accuracy
+     * @param typedSymbol 
+     */
+    private void addTypedSymbolToTypedString(String typedSymbol) {
+        totalTypedCharacters += 1;
+        String newTypedString = typedString + typedSymbol;
+        int checkMatchingIndex = newTypedString.length() - 1;
+        if (allStrings[lineIndex].length() <= checkMatchingIndex || newTypedString.charAt(checkMatchingIndex) != allStrings[lineIndex].charAt(checkMatchingIndex)) {
+            totalErrors += 1;
+        }
+        setTypedString(newTypedString);
     }
     
     /**
@@ -276,7 +303,25 @@ public class TypingController {
     }
     
     /**
-     * Checks if the typed string matches the string to type
+     * Show alert of invalid key inputs
+     * @param keyStr the invalid key code to string
+     */
+    private void showInvalidKeyAlert(String keyStr) {
+        Alert alert = new Alert(AlertType.WARNING);
+        alert.setTitle("INVALID KEY INPUT");
+        alert.setContentText("Please only use the keys displayed on the virtual keyboard.");
+        
+        Label headerLabel = new Label("INVALID INPUT: " + keyStr);
+        headerLabel.setFont(Font.font(25));
+        headerLabel.setAlignment(Pos.CENTER);
+        headerLabel.setStyle("-fx-text-fill: red;");
+        
+        alert.getDialogPane().setHeader(headerLabel);
+        alert.showAndWait();
+    }
+    
+    /**
+     * Checks if the typed string matches the string to type, and goes to the next lien to type if yes.
      */
     private void checkLineComplete() {
         if (typedString.equals(allStrings[lineIndex])) {
@@ -288,8 +333,6 @@ public class TypingController {
      * Increases the index of the line to type by 1 and calls the corresponding functions
      */
     private void incrementLineToType() {
-        savedErrorCount += getErrorCount();
-        savedTotalCharactersCount += typedString.length();
         setLineToType((lineIndex + 1) % allStrings.length);
     }
     
@@ -313,8 +356,8 @@ public class TypingController {
      * Resets the typed text, the counts of saved errors and total characters
      */
     private void resetTypingPractice() {  
-        savedErrorCount = 0;
-        savedTotalCharactersCount = 0;
+        totalErrors = 0;
+        totalTypedCharacters = 0;
         setTypedString("");
     }
     
@@ -326,8 +369,8 @@ public class TypingController {
         typedString = str;
         displayTypedText();
         int characterCount = str.length();
-        accuracyLabel.setText(String.format("Accuracy : %s/%s", (savedTotalCharactersCount - savedErrorCount) + (characterCount - getErrorCount()), savedTotalCharactersCount + characterCount));
-        
+        accuracyLabel.setText(String.format("Accuracy : %s/%s", totalTypedCharacters - totalErrors, totalTypedCharacters));
+        errorCountLabel.setText(String.format("Errors : %s", getErrorCount()));
     }
 
     /**
@@ -347,15 +390,15 @@ public class TypingController {
 
      
      /**
-     * Applies the symbol to the string
+     * DEPRECATED - Applies the symbol to the string
      * @param startStr initial string
      * @param symbol symbol to apply
      * @return the new string
-     */
+     
     public static String applySymbolToString(String startStr, String symbol) {
         return SYMBOL_FUNCTIONS.getOrDefault(symbol, (Function<String, String>) (String str) -> (str + symbol)).apply(startStr);
     }
-    
+    */
     
     /**
      * Gets the typed symbol depending on if shift is pressed
@@ -367,7 +410,7 @@ public class TypingController {
             return keySymbol;
         }
         char symbol = keySymbol.toCharArray()[0];
-        return (shiftPressed ? Character.toUpperCase(symbol) : Character.toLowerCase(symbol)) + "";
+        return ((shiftPressed || capsToggled)? Character.toUpperCase(symbol) : Character.toLowerCase(symbol)) + "";
     }
     
     /**
